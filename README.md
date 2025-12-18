@@ -1,1 +1,1 @@
-# cv_nst_project
+# cv-nst-project
