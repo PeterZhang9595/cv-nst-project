@@ -1,4 +1,2 @@
 # cv-nst-project
-milestone ddl: 2026.1.3
-
-final ddl: 2026.1.18
+你好，这里是本次大作业的Gatys及Laplacian实现的分支。
