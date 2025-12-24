@@ -65,3 +65,55 @@ git add -i
 ## 提交更新
 每次提交之前，先用```git status```检查一下。
 然后使用```git commit -m "" ```，此时相当于把暂存区的文件拍一张快照，传到Git目录。
+
+## 移除文件
+使用```git rm <filename>```删除某一文件。
+使用```git rm --cached README```取消Git 对文件的追踪。
+
+## 改名文件
+使用```git mv file_from file_to```对文件进行改名。
+
+# 查看提交历史
+当你想快速审查一份修改的时候，可以用这些指令。
+```git log -p -<time>```显示每次提交所引入的差异,time表示限制只显示最近的两次提交。
+```git log --stat```显示每次提交的简略统计信息。
+
+# 撤销操作
+## 撤销提交
+如果你在提交之后忘记了暂存某些需要的修改，可以这样操作，最终你第二次提交将覆盖第一次提交。
+```bash
+$ git commit -m 'initial commit'
+$ git add forgotten_file
+$ git commit --amend
+```
+## 取消暂存的文件
+如果你意外把一个还不想在下次进行提交的文件放到了暂存区，那么你可以使用
+```git reset HEAD <filename>```来取消暂存。
+或者也可以使用```git restore --staged file.txt```。
+当然这个命令有一点危险，需要谨慎使用。
+
+## 撤销对文件的修改
+把文件还原成之前的某个版本的样子。
+```git checkout --<filename>```
+这同样也是一个非常危险的命令，git会用最近提交或者放入暂存区的版本覆盖掉你当前的文件做出的所有本地改动。
+
+当然这个还是存在一定的风险的，现代Git更推荐使用
+```git restore filename```它的语义更加明确，用来恢复工作区。
+
+# 远程仓库的使用
+git 给克隆的仓库服务器的默认名字是origin。你可以使用```git remote```命令查看远程仓库服务器的名字。
+
+## 添加远程仓库
+```git add <shortname> <url>```
+
+## 从远程仓库拉取信息
+如果你想拉取远程仓库中存在但是你自己没有的信息，可以运行```git fetch origin```
+注意这个命令只会将数据下载到本地仓库，它并不会自动合并或者修改你当前的工作。
+
+## 推送到远程仓库
+```git push <remote> <branch>```
+
+## 查看远程仓库的信息
+```git remote show <remote>```
+
+# 打标签
