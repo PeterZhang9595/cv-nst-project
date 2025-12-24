@@ -117,3 +117,18 @@ git 给克隆的仓库服务器的默认名字是origin。你可以使用```git 
 ```git remote show <remote>```
 
 # 打标签
+## 创建标签
+- 附注标签
+```bash
+$ git tag -a v1.4 -m "my version 1.4"
+```
+使用```git show```就可以看到标签信息以及对应的提交信息。
+
+- 后期打标签
+给过去的commit历史中的某一条提交记录打标签。需要先找到指定提交的校验和（哈希码）。
+```git tag -a v1.2 <hashcode>```
+
+## 共享标签
+默认情况下，```git push```不会传送标签到远程服务器，因此必须显式推送标签到服务器上，运行```git push origin <tagname>```。
+
+# 分支模型
