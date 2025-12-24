@@ -1,5 +1,212 @@
 import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+
+from PIL import Image
+import matplotlib.pyplot as plt
+
+import torchvision.transforms as transforms
+from torchvision.models import vgg19,VGG19_Weights
+from torchvision.transforms import InterpolationMode
+
+import copy
 import numpy
 import torchvision
 
-print("hello world")
+############# 选择设备 ###############
+device = torch.device("cuda" if torch.cuda.is_available()else "cpu")
+torch.set_default_device(device)
+
+############# 加载图片 #################
+
+# 这里我们使用GPU的时候，默认让图像短边大小为512，长边按照等比例进行缩放若否则使用128以节省计算量
+imsize = (512,512) if torch.cuda.is_available() else (128,128)
+rgb_mean = torch.tensor([0.485,0.456,0.406])
+rgb_std = torch.tensor([0.229,0.224,0.225])
+loader = transforms.Compose([
+        transforms.Resize(imsize,interpolation=InterpolationMode.LANCZOS),
+        transforms.ToTensor()
+])
+
+# 图像预处理
+def preprocess(image_name):
+    # 读取文件路径
+    image = Image.open(image_name)
+
+    # 在最前面添加一个维度，变成pytorch标准的[B,C,H,W]形式
+    image = loader(image).unsqueeze(0)
+    image = image.to(device,torch.float)
+
+    return image
+
+# 把生成的tensor形式的图片转化为PIL格式进行显示
+def img_show(img_tensor,width,height,title=None):
+    image = img_tensor.cpu().clone()
+    image = image.squeeze(0)
+    image = torch.clamp(image,0,1)
+    # 把向量转化回PIL图像
+    unloader = transforms.ToPILImage()
+    #plt.ion()
+    image = unloader(image)
+    image = image.resize((width,height),resample=Image.Resampling.LANCZOS)
+    plt.imshow(image)
+    if title is not None:
+        plt.title(title)
+    plt.show(block=True)
+
+class Normalization(nn.Module):
+    def __init__(self):
+        super(Normalization,self).__init__()
+        self.mean = torch.tensor(rgb_mean).view(-1,1,1)
+        
+        self.std = torch.tensor(rgb_std).view(-1,1,1)
+    def forward(self,image):
+        return (image - self.mean) / self.std
+        
+# 计算内容损失
+class ContentLoss(nn.Module):
+    def __init__(self,target):
+        super(ContentLoss,self).__init__()
+        # target是对比图的对应层特征，我们不希望它加入计算图，所以要用detach
+        self.target = target.detach()
+
+    def forward(self,input):
+        self.loss = F.mse_loss(input,self.target)
+        return input
+
+# 计算风格损失
+def gram_matrix(input):
+    B,C,H,W = input.shape
+    features = input.view(B*C,H*W)
+    G = torch.mm(features,features.t())
+    return G.div(C*B*H*W)
+
+class StyleLoss(nn.Module):
+    def __init__(self,target):
+        super(StyleLoss,self).__init__()
+        self.target = gram_matrix(target).detach()
+
+    def forward(self,input):
+        G = gram_matrix(input)
+        self.loss = F.mse_loss(self.target,G)
+        return input
+
+# 导入模型，在VGG19的特征提取层加入我们前面定义的两个loss
+def get_model_with_losses(cnn,style_image,content_image):
+    # 我们所有提取的层都是relu
+    content_layers = ["relu_4_2"]
+    style_layers = ["relu_1_1","relu_2_1","relu_3_1","relu_4_1","relu_5_1"]
+    content_losses = []
+    style_losses = []
+
+    # 创建一个空容器
+    normalization = Normalization()
+    model = nn.Sequential(normalization)
+
+    i = 1
+    conv_index = 0
+    # 请注意，在原版的VGG中，不存在BatchNormalization层
+    for layer in cnn.children():
+        if isinstance(layer,nn.Conv2d):
+            conv_index+=1
+            name = f"conv_{i}_{conv_index}"
+        elif isinstance(layer,nn.ReLU):
+            name = f"relu_{i}_{conv_index}"
+            # 创建一个新的张量，这样有利于后面计算loss
+            layer = nn.ReLU(inplace=False)
+        elif isinstance(layer,nn.MaxPool2d):
+            name = f"pool_{i}"
+            i+=1
+            conv_index = 0
+        else:
+            raise RuntimeError('unrecognized layer')
+        model.add_module(name,layer)
+
+
+        # 请注意，我们这里存入losses列表中的并不是loss的实际值，而是一系列存储了loss实际值的loss层
+        if name in content_layers:
+           target = model(content_image)
+           content_loss = ContentLoss(target)
+           model.add_module(f"content_loss{i}",content_loss)
+           content_losses.append(content_loss)
+
+        if name in style_layers:
+            target = model(style_image)
+            style_loss = StyleLoss(target)
+            model.add_module(f"style_loss{i}",style_loss)
+            style_losses.append(style_loss)
+
+    for k in range(len(model)-1,-1,-1):
+        if isinstance(model[k],ContentLoss) or isinstance(model[k],StyleLoss):
+            break
+    
+    # 这里我们为了节省计算效率，截断model到最后一个loss层
+    model = model[:(k+1)]
+
+    return model,content_losses,style_losses
+
+
+# 定义一个对图片进行梯度下降的优化器
+def get_input_optimizer(input_image):
+    optimizer = optim.LBFGS([input_image],lr = 0.1)
+    return optimizer
+
+def run_neural_sytle_transfer(cnn,content_image,style_image,input_image,num_steps=500,style_weight=1e6,content_weight=1):
+    print('Building the style transfer model...')
+    gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image)
+    input_image.requires_grad_(True)
+    gaty_model.eval()
+    gaty_model.requires_grad_(False)
+
+    print("Begin optimizing")
+
+    optimizer = get_input_optimizer(input_image)
+    run = [0]
+    while run[0] <= num_steps:
+        def closure():
+            with torch.no_grad():
+                input_image.clamp_(0,1)
+
+            optimizer.zero_grad()
+            gaty_model(input_image)
+            style_score = 0
+            content_score = 0
+            
+            for sl in style_losses:
+                style_score += sl.loss
+            for cl in content_losses:
+                content_score += cl.loss
+
+            style_score *= style_weight
+            content_score *= content_weight
+            loss = style_score + content_score
+            loss.backward()
+
+            run[0] += 1
+            if run[0] % 25 == 0:
+                print("run {}:".format(run))
+                print('Style Loss : {:4f} Content Loss: {:4f}'.format(
+                    style_score.item(), content_score.item()))
+                print()
+            
+            return style_score + content_score
+        optimizer.step(closure)
+
+    return input_image
+
+if __name__ == "__main__":
+    temp = Image.open("./images/jinan.jpg")
+    width, height = temp.size  # 返回 (宽, 高)
+    style_image = preprocess("./images/picasso.jpg")
+    content_image = preprocess("./images/jinan.jpg")
+    cnn = vgg19(weights=VGG19_Weights.DEFAULT).features.eval()
+
+    input_image = content_image.clone()
+    output = run_neural_sytle_transfer(cnn,content_image,style_image,input_image)
+
+    plt.figure()
+    img_show(output, width,height,title='Output Image')
+
+
+   
