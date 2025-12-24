@@ -132,3 +132,8 @@ $ git tag -a v1.4 -m "my version 1.4"
 默认情况下，```git push```不会传送标签到远程服务器，因此必须显式推送标签到服务器上，运行```git push origin <tagname>```。
 
 # 分支模型
+这部分可能需要一些图片辅助理解，我就不截图了，可以直接去[分支简介](https://git-scm.com/book/zh/v2/Git-%e5%88%86%e6%94%af-%e5%88%86%e6%94%af%e7%ae%80%e4%bb%8b)进行查看，里面讲的很详细。
+
+## 分支创建
+```git branch <branchname>```
+但是这不会让你自动切换到新的分支里面去。
