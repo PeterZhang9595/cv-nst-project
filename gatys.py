@@ -11,8 +11,9 @@ from torchvision.models import vgg19,VGG19_Weights
 from torchvision.transforms import InterpolationMode
 
 import copy
-import numpy
+import numpy as np
 import torchvision
+import cv2
 
 ############# 选择设备 ###############
 device = torch.device("cuda" if torch.cuda.is_available()else "cpu")
@@ -66,13 +67,17 @@ class Normalization(nn.Module):
         
 # 计算内容损失
 class ContentLoss(nn.Module):
-    def __init__(self,target):
+    def __init__(self,target,mask):
         super(ContentLoss,self).__init__()
         # target是对比图的对应层特征，我们不希望它加入计算图，所以要用detach
         self.target = target.detach()
+        self.mask = mask
 
     def forward(self,input):
-        self.loss = F.mse_loss(input,self.target)
+        h,w = input.shape[2],input.shape[3]
+        curr_mask = F.interpolate(self.mask,size=(h,w),mode='bilinear')
+
+        self.loss = F.mse_loss(input*curr_mask,self.target*curr_mask)
         return input
 
 # 计算风格损失
@@ -83,17 +88,22 @@ def gram_matrix(input):
     return G.div(C*B*H*W)
 
 class StyleLoss(nn.Module):
-    def __init__(self,target):
+    def __init__(self,target,mask):
         super(StyleLoss,self).__init__()
         self.target = gram_matrix(target).detach()
+        self.mask = mask
+        
 
     def forward(self,input):
-        G = gram_matrix(input)
+        h, w = input.shape[2], input.shape[3]
+        curr_mask = F.interpolate(self.mask, size=(h, w), mode='bilinear')
+        masked_input = input * (1 - curr_mask)
+        G = gram_matrix(masked_input)
         self.loss = F.mse_loss(self.target,G)
         return input
 
 # 导入模型，在VGG19的特征提取层加入我们前面定义的两个loss
-def get_model_with_losses(cnn,style_image,content_image):
+def get_model_with_losses(cnn,style_image,content_image,mask):
     # 我们所有提取的层都是relu
     content_layers = ["relu_4_2"]
     style_layers = ["relu_1_1","relu_2_1","relu_3_1","relu_4_1","relu_5_1"]
@@ -127,13 +137,13 @@ def get_model_with_losses(cnn,style_image,content_image):
         # 请注意，我们这里存入losses列表中的并不是loss的实际值，而是一系列存储了loss实际值的loss层
         if name in content_layers:
            target = model(content_image)
-           content_loss = ContentLoss(target)
+           content_loss = ContentLoss(target,mask)
            model.add_module(f"content_loss{i}",content_loss)
            content_losses.append(content_loss)
 
         if name in style_layers:
             target = model(style_image)
-            style_loss = StyleLoss(target)
+            style_loss = StyleLoss(target,mask)
             model.add_module(f"style_loss{i}",style_loss)
             style_losses.append(style_loss)
 
@@ -219,6 +229,30 @@ def get_model_with_lapstyle_losses(content_image):
     return model,lap_losses
 
 
+# 生成一张图片的掩码，使用canny边缘检测方法
+def generate_edge_mask(img_path,target_size=(512,512),device='cuda'):
+    image = cv2.imread(img_path)
+    gray = cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray,(5,5),0)
+
+    # 生成边缘
+    edges = cv2.Canny(blurred,15,30)
+
+    kernel = np.ones((5,5),np.uint8)
+
+    # 这一步可以把canny检测到的细小缺口补上，让整个图像边缘更加的连贯
+    closed = cv2.morphologyEx(edges,cv2.MORPH_CLOSE,kernel)
+
+    # 填充轮廓，得到一个实心面
+    contours,_ = cv2.findContours(closed,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+    mask_np = np.zeros_like(gray)
+    cv2.drawContours(mask_np,contours,-1,255,thickness=cv2.FILLED)
+
+    mask_tensor = torch.from_numpy(mask_np).float() / 255.0
+    mask_tensor = mask_tensor.unsqueeze(0).unsqueeze(0) #shape:[1,1,H,W]
+    mask_tensor = F.interpolate(mask_tensor,size=target_size,mode='nearest')
+
+    return mask_tensor.to(device)
 
 
 
@@ -227,9 +261,9 @@ def get_input_optimizer(input_image):
     optimizer = optim.LBFGS([input_image],lr = 0.1)
     return optimizer
 
-def run_neural_sytle_transfer(cnn,content_image,style_image,input_image,num_steps=500,style_weight=1e6,content_weight=1,laplacian_weight=100):
+def run_neural_sytle_transfer(cnn,content_image,style_image,input_image,mask,num_steps=500,style_weight=1e8,content_weight=1e2,laplacian_weight=100):
     print('Building the style transfer model...')
-    gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image)
+    gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image,mask)
     laplacian_model,laplacian_losses = get_model_with_lapstyle_losses(content_image)
     input_image.requires_grad_(True)
     gaty_model.eval()
@@ -278,14 +312,15 @@ def run_neural_sytle_transfer(cnn,content_image,style_image,input_image,num_step
     return input_image
 
 if __name__ == "__main__":
-    temp = Image.open("./images/megan.png")
+    temp = Image.open("./images/palace.jpg")
     width, height = temp.size  
-    style_image = preprocess("./images/flowers.png")
-    content_image = preprocess("./images/megan.png")
+    style_image = preprocess("./images/starry_night.jpg")
+    content_image = preprocess("./images/palace.jpg")
     cnn = vgg19(weights=VGG19_Weights.DEFAULT).features.eval()
 
+    mask = generate_edge_mask("./images/palace.jpg")
     input_image = content_image.clone()
-    output = run_neural_sytle_transfer(cnn,content_image,style_image,input_image)
+    output = run_neural_sytle_transfer(cnn,content_image,style_image,input_image,mask)
 
     plt.figure()
     img_show(output, width,height,title='Output Image')
