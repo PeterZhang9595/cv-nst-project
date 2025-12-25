@@ -147,17 +147,94 @@ def get_model_with_losses(cnn,style_image,content_image):
     return model,content_losses,style_losses
 
 
+class LaplacianLayer(nn.Module):
+    def __init__(self,channels=3):
+        super(LaplacianLayer,self).__init__()
+        kernel = torch.tensor([
+            0,-1,0,
+            -1,4,-1,
+            0,-1,0
+        ],dtype=torch.float32)
+
+        kernel = kernel.view(1,1,3,3) 
+        # 在原论文中，作者指出，应当对RGB三个通道分别用laplacian卷积
+        kernel = kernel.repeat(channels,1,1,1) # shape:[3,1,3,3]
+        
+        # 这里使用depthwise卷积，即对每个输入通道使用一个独立的卷积核，只对本通道卷积，
+        # 不跨通道混合信息
+        self.conv = nn.Conv2d(
+            in_channels=channels,
+            out_channels=channels,
+            kernel_size=3,
+            groups=channels,
+            bias=False,
+            padding=1,
+            padding_mode='reflect'
+        )
+
+        with torch.no_grad():
+            self.conv.weight.copy_(kernel)
+        self.conv.weight.requires_grad = False
+
+
+    def forward(self,input):
+        return self.conv(input)
+
+class LaplacianLoss(nn.Module):
+    def __init__(self,target,channels=3):
+        super(LaplacianLoss,self).__init__()
+        self.channels = channels
+        
+        self.target = target.clone()
+        self.target = self.target.sum(dim=1,keepdim=True)
+        self.target = self.target.detach()
+
+    def forward(self,input):
+        temp_input = input.clone()
+        temp_input = temp_input.sum(dim=1,keepdim=True)
+        self.loss = F.mse_loss(temp_input,self.target)
+        return input
+
+
+def get_model_with_lapstyle_losses(content_image):
+    lap_losses = []
+    normalization = Normalization()
+    model = nn.Sequential(normalization)
+    
+    layer = nn.AvgPool2d(kernel_size=4,stride=4)
+    name = "average_pooling"
+    model.add_module(name,layer)
+
+    laplacian = LaplacianLayer()
+    name = "laplacian operator"
+    model.add_module(name,laplacian)
+
+    target = model(content_image)
+    lap_loss = LaplacianLoss(target)
+    name = "laplacian loss"
+    model.add_module(name,lap_loss)
+
+    lap_losses.append(lap_loss)
+
+    return model,lap_losses
+
+
+
+
+
 # 定义一个对图片进行梯度下降的优化器
 def get_input_optimizer(input_image):
     optimizer = optim.LBFGS([input_image],lr = 0.1)
     return optimizer
 
-def run_neural_sytle_transfer(cnn,content_image,style_image,input_image,num_steps=500,style_weight=1e6,content_weight=1):
+def run_neural_sytle_transfer(cnn,content_image,style_image,input_image,num_steps=500,style_weight=1e6,content_weight=1,laplacian_weight=100):
     print('Building the style transfer model...')
     gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image)
+    laplacian_model,laplacian_losses = get_model_with_lapstyle_losses(content_image)
     input_image.requires_grad_(True)
     gaty_model.eval()
     gaty_model.requires_grad_(False)
+    laplacian_model.requires_grad_(False)
 
     print("Begin optimizing")
 
@@ -170,36 +247,41 @@ def run_neural_sytle_transfer(cnn,content_image,style_image,input_image,num_step
 
             optimizer.zero_grad()
             gaty_model(input_image)
+            laplacian_model(input_image)
             style_score = 0
             content_score = 0
+            laplacian_score = 0
             
             for sl in style_losses:
                 style_score += sl.loss
             for cl in content_losses:
                 content_score += cl.loss
+            for ll in laplacian_losses:
+                laplacian_score += ll.loss
 
             style_score *= style_weight
             content_score *= content_weight
-            loss = style_score + content_score
+            laplacian_score *= laplacian_weight
+            loss = style_score + content_score + laplacian_score
             loss.backward()
 
             run[0] += 1
             if run[0] % 25 == 0:
                 print("run {}:".format(run))
-                print('Style Loss : {:4f} Content Loss: {:4f}'.format(
-                    style_score.item(), content_score.item()))
+                print('Style Loss : {:4f} Content Loss: {:4f} Laplacian Loss: {:4f}'.format(
+                    style_score.item(), content_score.item(),laplacian_score.item()))
                 print()
             
-            return style_score + content_score
+            return style_score + content_score + laplacian_score
         optimizer.step(closure)
 
     return input_image
 
 if __name__ == "__main__":
-    temp = Image.open("./images/jinan.jpg")
-    width, height = temp.size  # 返回 (宽, 高)
-    style_image = preprocess("./images/picasso.jpg")
-    content_image = preprocess("./images/jinan.jpg")
+    temp = Image.open("./images/megan.png")
+    width, height = temp.size  
+    style_image = preprocess("./images/flowers.png")
+    content_image = preprocess("./images/megan.png")
     cnn = vgg19(weights=VGG19_Weights.DEFAULT).features.eval()
 
     input_image = content_image.clone()
