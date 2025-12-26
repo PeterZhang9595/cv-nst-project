@@ -113,7 +113,7 @@ else:
     style_paths = [f for f in style_dir.glob('*')]
 
 decoder = net.decoder
-vgg = net.vgg
+vgg = net.vgg1
 
 decoder.eval()
 vgg.eval()
