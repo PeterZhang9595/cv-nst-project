@@ -16,8 +16,8 @@ print(f'Using device: {device}')
 
 
 content_path = "test_content.jpg"   # 你的内容图
-style_path   = "test_style7.jpg"     # 你的风格图
-output_path  = "output1.jpg"         # 保存结果
+style_path   = "test_style.jpg"     # 你的风格图
+output_path  = "output.jpg"         # 保存结果
 
 decoder_path = "./save/decoder_iter_140000.pth"  # 训练好的 decoder 权重
 
@@ -71,7 +71,8 @@ style   = load_image(style_path)
 # Forward pass (AdaIN)
 # -------------------------
 with torch.no_grad():
-    generated = net.generate(content, style)
+    # now we can generate image with different degree of stylization by changing k
+    generated = net.generate(content, style,k=0.1)
     
     # 反归一化
     generated = generated * torch.tensor(std).view(1,3,1,1).to(device) + torch.tensor(mean).view(1,3,1,1).to(device)

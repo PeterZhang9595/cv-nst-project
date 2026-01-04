@@ -153,12 +153,12 @@ class StyleTransferNet(nn.Module):
 
         return content_loss, style_loss
     
-    def generate(self, content, style):
+    def generate(self, content, style,k=1):
         content_feats = self.encoder(content)
         style_feats = self.encoder(style)
 
         t = self.adain(content_feats[-1], style_feats[-1])
-        generated = self.decoder(t)
+        generated = self.decoder(content_feats[-1]*(1-k) + t*k)
         return generated
 
 
