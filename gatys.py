@@ -227,7 +227,7 @@ def get_input_optimizer(input_image):
     optimizer = optim.LBFGS([input_image],lr = 0.1)
     return optimizer
 
-def run_neural_sytle_transfer(cnn,content_image,style_image,input_image,num_steps=500,style_weight=1e6,content_weight=1,laplacian_weight=100):
+def run_neural_sytle_transfer_lapstyle(cnn,content_image,style_image,input_image,num_steps=500,style_weight=1e6,content_weight=1,laplacian_weight=100):
     print('Building the style transfer model...')
     gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image)
     laplacian_model,laplacian_losses = get_model_with_lapstyle_losses(content_image)
@@ -277,15 +277,65 @@ def run_neural_sytle_transfer(cnn,content_image,style_image,input_image,num_step
 
     return input_image
 
+def run_neural_sytle_transfer_gatys(cnn,content_image,style_image,input_image,num_steps=500,style_weight=1e6,content_weight=1,laplacian_weight=100):
+    print('Building the style transfer model...')
+    gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image)
+    #laplacian_model,laplacian_losses = get_model_with_lapstyle_losses(content_image)
+    input_image.requires_grad_(True)
+    gaty_model.eval()
+    gaty_model.requires_grad_(False)
+    #laplacian_model.requires_grad_(False)
+
+    print("Begin optimizing")
+
+    optimizer = get_input_optimizer(input_image)
+    run = [0]
+    while run[0] <= num_steps:
+        def closure():
+            with torch.no_grad():
+                input_image.clamp_(0,1)
+
+            optimizer.zero_grad()
+            gaty_model(input_image)
+            #laplacian_model(input_image)
+            style_score = 0
+            content_score = 0
+            #laplacian_score = 0
+            
+            for sl in style_losses:
+                style_score += sl.loss
+            for cl in content_losses:
+                content_score += cl.loss
+            #for ll in laplacian_losses:
+                #laplacian_score += ll.loss
+
+            style_score *= style_weight
+            content_score *= content_weight
+            #laplacian_score *= laplacian_weight
+            loss = style_score + content_score 
+            loss.backward()
+
+            run[0] += 1
+            if run[0] % 25 == 0:
+                print("run {}:".format(run))
+                print('Style Loss : {:4f} Content Loss: {:4f}'.format(
+                    style_score.item(), content_score.item()))
+                print()
+            
+            return style_score + content_score
+        optimizer.step(closure)
+    return input_image
+
+
 if __name__ == "__main__":
-    temp = Image.open("./images/megan.png")
+    temp = Image.open("./images/hoovertowernight.jpg")
     width, height = temp.size  
-    style_image = preprocess("./images/flowers.png")
-    content_image = preprocess("./images/megan.png")
+    style_image = preprocess("./images/starry_night.jpg")
+    content_image = preprocess("./images/hoovertowernight.jpg")
     cnn = vgg19(weights=VGG19_Weights.DEFAULT).features.eval()
 
     input_image = content_image.clone()
-    output = run_neural_sytle_transfer(cnn,content_image,style_image,input_image)
+    output = run_neural_sytle_transfer_gatys(cnn,content_image,style_image,input_image)
 
     plt.figure()
     img_show(output, width,height,title='Output Image')
