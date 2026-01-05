@@ -1,5 +1,5 @@
 import torch
-
+import torch.nn.functional as F
 
 
 def calc_mean_std(feat, eps=1e-5):
@@ -66,3 +66,37 @@ def coral(source, target):
                         target_f_mean.expand_as(source_f_norm)
 
     return source_f_transfer.view(source.size())
+
+# try to implement the image divide and different style transfer on different parts
+import numpy as np
+import cv2
+
+import cv2
+import numpy as np
+
+def segment_foreground_background(image_path):
+
+    # Convert PIL image to OpenCV format
+    if isinstance(image_path, str):
+        img = cv2.imread(image_path)
+    else:
+        img = np.array(image_path)
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+
+    mask = np.zeros(img.shape[:2], np.uint8)
+
+    bgdModel = np.zeros((1, 65), np.float64)
+    fgdModel = np.zeros((1, 65), np.float64)
+
+    # 假设前景在中间
+    h, w = img.shape[:2]
+    rect = (40,20, w-1, h-1)
+    cv2.grabCut(img, mask, rect, bgdModel, fgdModel, 15, cv2.GC_INIT_WITH_RECT)
+
+    result_mask = np.where((mask == 2) | (mask == 0), 0, 1).astype("uint8")
+    result_mask = cv2.GaussianBlur(result_mask, (15, 15), 0)
+    foreground = img * result_mask[:, :, np.newaxis]
+    background = img * (1 - result_mask[:, :, np.newaxis])
+    return foreground, background,result_mask
+

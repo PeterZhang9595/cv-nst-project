@@ -3,3 +3,6 @@ tmp.py
 __pycache__
 *.pyc
 .gradio
+test_content*
+test_style*
+output*

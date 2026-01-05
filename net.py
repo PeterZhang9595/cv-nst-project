@@ -9,6 +9,7 @@ import torch.nn as nn
 from function import adaptive_instance_normalization as adain
 from function import calc_mean_std
 
+
 # we will use a vgg encoder , a adain layer 
 # a decoder to reconstruct the image 
 # and a same vgg for loss calculation
@@ -153,12 +154,32 @@ class StyleTransferNet(nn.Module):
 
         return content_loss, style_loss
     
-    def generate(self, content, style,k=1):
+    def generate(self, content, style1,k=1):
+        # if the style2 is not None, use the foreground-background segmentation
+        # to apply different styles to different regions
         content_feats = self.encoder(content)
-        style_feats = self.encoder(style)
-
-        t = self.adain(content_feats[-1], style_feats[-1])
+        style1_feats = self.encoder(style1)
+        t = self.adain(content_feats[-1], style1_feats[-1])
         generated = self.decoder(content_feats[-1]*(1-k) + t*k)
+        return generated
+    def generate1(self, fore,back, style1,style2,mask,k=1):
+        fore_feats = self.encoder(fore)
+        back_feats = self.encoder(back)
+        style1_feats = self.encoder(style1)
+        style2_feats = self.encoder(style2)
+        t1 = self.adain(fore_feats[-1], style1_feats[-1])
+        t2 = self.adain(back_feats[-1], style2_feats[-1])
+        generated_fore = self.decoder(fore_feats[-1]*(1-k) + t1*k)
+        generated_back = self.decoder(back_feats[-1]*(1-k) + t2*k)
+        # combine fore and back
+        # print(generated_fore.shape, generated_back.shape, mask.shape)
+        min_h = min(generated_fore.shape[2], generated_back.shape[2], mask.shape[2])
+        min_w = min(generated_fore.shape[3], generated_back.shape[3], mask.shape[3])
+        generated_fore = generated_fore[:, :, :min_h, :min_w]
+        generated_back = generated_back[:, :, :min_h, :min_w]
+        mask = mask[:, :, :min_h, :min_w]
+        
+        generated = generated_fore * mask + generated_back * (1 - mask)
         return generated
 
 

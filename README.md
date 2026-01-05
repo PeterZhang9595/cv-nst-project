@@ -15,9 +15,9 @@ and add the style of the style picture.
 - a VGG the same as the first part to get the situation, and use for the loss compute with the adain layer's output(content and style).
 
 ### some points may be done to control while running
-- content-style trade-off
+- content-style trade-off already complete!
 - style interpolation
-- spatial control
+- spatial control trying ... basically complete !
 - color control
 
 
