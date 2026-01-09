@@ -16,9 +16,9 @@ and add the style of the style picture.
 
 ### some points may be done to control while running
 - content-style trade-off already complete!
-- style interpolation
-- spatial control trying ... basically complete !
-- color control
+- style interpolation I don't think it help a lot.
+- spatial control trying ... basically complete , now I think is better.
+- color control already done!
 
 
 ### some improvement --- more advanced network architectures
