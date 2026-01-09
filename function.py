@@ -1,5 +1,8 @@
 import torch
 import torch.nn.functional as F
+from PIL import Image
+import numpy as np
+import cv2
 
 
 def calc_mean_std(feat, eps=1e-5):
@@ -68,11 +71,7 @@ def coral(source, target):
     return source_f_transfer.view(source.size())
 
 # try to implement the image divide and different style transfer on different parts
-import numpy as np
-import cv2
 
-import cv2
-import numpy as np
 
 def segment_foreground_background(image_path):
 
@@ -100,3 +99,76 @@ def segment_foreground_background(image_path):
     background = img * (1 - result_mask[:, :, np.newaxis])
     return foreground, background,result_mask
 
+
+# based rgb color space
+def color_matching(content,style):
+    content_np = np.array(content).astype(np.float32)
+    style_np = np.array(style).astype(np.float32)
+
+    content_mean = np.mean(content_np, axis=(0, 1), keepdims=True)
+    content_std = np.std(content_np, axis=(0, 1), keepdims=True)
+
+    style_mean = np.mean(style_np, axis=(0, 1), keepdims=True)
+    style_std = np.std(style_np, axis=(0, 1), keepdims=True)
+    # 将style的颜色预处理为content的颜色分布
+    matched_style = (style_np - style_mean) / style_std * content_std + content_mean
+    matched_style = np.clip(matched_style, 0, 255).astype(np.uint8)
+    return Image.fromarray(matched_style)
+
+
+def color_matching_local(content,style,grid_size=8,alpha=0.5,eps=1e-5):
+    content_np = np.array(content).astype(np.float32)
+    style_np = np.array(style).astype(np.float32)
+
+    h, w, c = content_np.shape
+    grid_h,grid_w = h // grid_size, w // grid_size
+
+    matched_style = np.zeros_like(style_np)
+
+    for i in range(grid_size):
+        for j in range(grid_size):
+            content_patch = content_np[i*grid_h:(i+1)*grid_h, j*grid_w:(j+1)*grid_w, :]
+            style_patch = style_np[i*grid_h:(i+1)*grid_h, j*grid_w:(j+1)*grid_w, :]
+
+            content_mean = np.mean(content_patch, axis=(0, 1), keepdims=True)
+            content_std = np.std(content_patch, axis=(0, 1), keepdims=True) + eps
+
+            style_mean = np.mean(style_patch, axis=(0, 1), keepdims=True)
+            style_std = np.std(style_patch, axis=(0, 1), keepdims=True) + eps
+
+            matched_patch = (style_patch - style_mean) / style_std * content_std + content_mean
+            matched_style[i*grid_h:(i+1)*grid_h, j*grid_w:(j+1)*grid_w, :] = matched_patch*alpha + style_patch*(1-alpha)
+
+
+    matched_style = np.clip(matched_style, 0, 255).astype(np.uint8)
+    return Image.fromarray(matched_style)   
+
+
+def histogram_matching_opencv(source, target,alpha=0.5):
+    """使用 OpenCV 进行直方图匹配"""
+    result = np.zeros_like(source)
+    
+    for i in range(3):  # 对每个通道
+        # 计算直方图
+        hist_source = cv2.calcHist([source], [i], None, [256], [0, 256])
+        hist_target = cv2.calcHist([target], [i], None, [256], [0, 256])
+        
+        # 计算累积直方图
+        cdf_source = hist_source.cumsum()
+        cdf_target = hist_target.cumsum()
+        
+        # 归一化
+        cdf_source = (cdf_source - cdf_source.min()) * 255 / (cdf_source.max() - cdf_source.min())
+        cdf_target = (cdf_target - cdf_target.min()) * 255 / (cdf_target.max() - cdf_target.min())
+        
+        # 创建映射表
+        lut = np.interp(cdf_source, cdf_target, range(256))
+        lut = np.clip(lut, 0, 255).astype(np.uint8)
+        
+        # 应用查找表
+        result[:,:,i] = cv2.LUT(source[:,:,i], lut)
+
+        # add a alpha blending between source and result
+        result[:,:,i] = cv2.addWeighted(source[:,:,i], 1-alpha, result[:,:,i], alpha, 0)
+    
+    return result
