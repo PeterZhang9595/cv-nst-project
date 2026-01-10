@@ -448,18 +448,17 @@ def pyramid_neural_transfer(model,content_image_path,style_image_path,style_weig
 
 
 if __name__ == "__main__":
-    '''
-    temp = Image.open("./images/hoovertowernight.jpg")
+    temp = Image.open("./images/palace.jpg")
     width, height = temp.size  
-    style_image_path = "./images/picasso.jpg"
-    content_image_path = "./images/hoovertowernight.jpg"
+    style_image_path = "./images/starry_night.jpg"
+    content_image_path = "./images/palace.jpg"
     style_image = preprocess_style(style_image_path)
     content_image = preprocess_content(content_image_path)
     cnn = vgg19(weights=VGG19_Weights.DEFAULT).features.eval()
 
     # 定义一系列参数
-    use_mask = False
-    use_laplacian = False
+    use_mask = True
+    use_laplacian = True
 
     input_image = content_image.clone()
     mask = generate_edge_mask(content_image_path)
@@ -474,7 +473,8 @@ if __name__ == "__main__":
 
     plt.figure()
     img_show(output, width,height,title='Output Image')
-    '''
+
+    """
     temp = Image.open("./images/hoovertowernight.jpg")
     width, height = temp.size  
     style_image_path = "./images/starry_night.jpg"
@@ -483,5 +483,5 @@ if __name__ == "__main__":
     output = pyramid_neural_transfer(cnn,content_image_path,style_image_path,1e6)
     plt.figure()
     img_show(output, width,height,title='Output Image')
-
+    """
    
