@@ -21,24 +21,34 @@ torch.set_default_device(device)
 
 ############# 加载图片 #################
 
-# 这里我们使用GPU的时候，默认让图像短边大小为512，长边按照等比例进行缩放若否则使用128以节省计算量
-imsize = (512,512) if torch.cuda.is_available() else (128,128)
+# 这里我们使用GPU的时候，默认让图像大小为512，若否则使用128以节省计算量
+content_imsize = (512,512) if torch.cuda.is_available() else (256,256)
+style_imsize = (512,512) if torch.cuda.is_available() else (256,256)
 rgb_mean = torch.tensor([0.485,0.456,0.406])
 rgb_std = torch.tensor([0.229,0.224,0.225])
-loader = transforms.Compose([
-        transforms.Resize(imsize,interpolation=InterpolationMode.LANCZOS),
+content_loader = transforms.Compose([
+        transforms.Resize(content_imsize,interpolation=InterpolationMode.LANCZOS),
         transforms.ToTensor()
+])
+style_loader = transforms.Compose([
+    transforms.Resize(style_imsize,interpolation=InterpolationMode.LANCZOS),
+    transforms.ToTensor()
 ])
 
 # 图像预处理
-def preprocess(image_name):
+def preprocess_content(image_name):
     # 读取文件路径
     image = Image.open(image_name)
 
     # 在最前面添加一个维度，变成pytorch标准的[B,C,H,W]形式
-    image = loader(image).unsqueeze(0)
+    image = content_loader(image).unsqueeze(0)
     image = image.to(device,torch.float)
 
+    return image
+def preprocess_style(image_name):
+    image = Image.open(image_name)
+    image = style_loader(image).unsqueeze(0)
+    image = image.to(device,torch.float)
     return image
 
 # 把生成的tensor形式的图片转化为PIL格式进行显示
@@ -273,7 +283,7 @@ def get_input_optimizer(input_image):
     optimizer = optim.LBFGS([input_image],lr = 0.1)
     return optimizer
 
-def run_neural_sytle_transfer_lapstyle(cnn,content_image,style_image,input_image,mask=None,num_steps=500,style_weight=1e6,content_weight=1,laplacian_weight=1e3):
+def run_neural_sytle_transfer_lapstyle(cnn,content_image,style_image,input_image,mask=None,num_steps=300,style_weight=1e7,content_weight=1,laplacian_weight=1e3,device=device):
     print('Building the style transfer model...')
     if mask is not None:
         gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image,mask)
@@ -326,7 +336,7 @@ def run_neural_sytle_transfer_lapstyle(cnn,content_image,style_image,input_image
 
     return input_image
 
-def run_neural_sytle_transfer_gatys(cnn,content_image,style_image,input_image,mask=None,num_steps=500,style_weight=1e6,content_weight=1,laplacian_weight=1e3):
+def run_neural_sytle_transfer_gatys(cnn,content_image,style_image,input_image,mask=None,num_steps=300,style_weight=1e7,content_weight=1,laplacian_weight=1e3,device=device):
     print('Building the style transfer model...')
     if mask is not None:
         gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image,mask)
@@ -355,7 +365,7 @@ def run_neural_sytle_transfer_gatys(cnn,content_image,style_image,input_image,ma
             #laplacian_score = 0
             
             for sl in style_losses:
-                style_score += sl.loss
+                style_score += sl.loss 
             for cl in content_losses:
                 content_score += cl.loss
             #for ll in laplacian_losses:
@@ -379,19 +389,77 @@ def run_neural_sytle_transfer_gatys(cnn,content_image,style_image,input_image,ma
     return input_image
 
 
+def read_and_resize(path, size=512):
+    img = cv2.imread(path)
+    img = cv2.resize(img, (size, size), interpolation=cv2.INTER_LANCZOS4)
+    return img
+
+to_tensor = transforms.ToTensor()
+def cv2_to_tensor(img):
+    img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
+    img = to_tensor(img).unsqueeze(0).to(device,torch.float)
+    return img
+
+def pyramid_neural_transfer(model,content_image_path,style_image_path,device=device):
+    content_512 = read_and_resize(content_image_path, 512)
+    style_512   = read_and_resize(style_image_path, 512)
+
+    content_256 = cv2.pyrDown(content_512)
+    style_256 = cv2.pyrDown(style_512)
+
+    content_128 = cv2.pyrDown(content_256)
+    style_128 = cv2.pyrDown(style_256)
+
+    contents = {
+        128: cv2_to_tensor(content_128),
+        256: cv2_to_tensor(content_256),
+        512: cv2_to_tensor(content_512),
+    }
+
+    styles = {
+        128: cv2_to_tensor(style_128),
+        256: cv2_to_tensor(style_256),
+        512: cv2_to_tensor(style_512),
+    }
+
+    input_128 = contents[128].clone().requires_grad_(True)
+    output_128 = run_neural_sytle_transfer_gatys(
+        model,contents[128],styles[128],input_128
+    )
+
+    input_256 = F.interpolate(
+        output_128,size=(256,256),mode="bilinear",align_corners=False
+    ).clone()
+    input_256 = input_256.detach().clone().requires_grad_(True)
+    output_256 = run_neural_sytle_transfer_gatys(
+        model,contents[256],styles[256],input_256
+    )
+
+    input_512 = F.interpolate(
+        output_256,size=(512,512),mode="bilinear",align_corners=False
+    ).clone()
+    input_512 = input_512.detach().clone().requires_grad_(True)
+    output_512 = run_neural_sytle_transfer_gatys(
+        model,contents[512],styles[512],input_512
+    )
+
+    return output_512
+
+
+
 if __name__ == "__main__":
-    temp = Image.open("./images/megan.png")
+    '''
+    temp = Image.open("./images/hoovertowernight.jpg")
     width, height = temp.size  
-    style_image_path = "./images/flowers.png"
-    content_image_path = "./images/megan.png"
-    style_image = preprocess(style_image_path)
-    content_image = preprocess(content_image_path)
+    style_image_path = "./images/picasso.jpg"
+    content_image_path = "./images/hoovertowernight.jpg"
+    style_image = preprocess_style(style_image_path)
+    content_image = preprocess_content(content_image_path)
     cnn = vgg19(weights=VGG19_Weights.DEFAULT).features.eval()
 
     # 定义一系列参数
     use_mask = False
-    use_laplacian = True
-    stroke_size = 1
+    use_laplacian = False
 
     input_image = content_image.clone()
     mask = generate_edge_mask(content_image_path)
@@ -406,6 +474,14 @@ if __name__ == "__main__":
 
     plt.figure()
     img_show(output, width,height,title='Output Image')
-
+    '''
+    temp = Image.open("./images/hoovertowernight.jpg")
+    width, height = temp.size  
+    style_image_path = "./images/starry_night.jpg"
+    content_image_path = "./images/hoovertowernight.jpg"
+    cnn = vgg19(weights=VGG19_Weights.DEFAULT).features.eval()
+    output = pyramid_neural_transfer(cnn,content_image_path,style_image_path)
+    plt.figure()
+    img_show(output, width,height,title='Output Image')
 
    
