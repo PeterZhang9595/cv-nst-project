@@ -252,7 +252,7 @@ def get_model_with_lapstyle_losses(content_image):
 
 
 # 生成一张图片的掩码，使用canny边缘检测方法
-def generate_edge_mask(img_path,target_size=(512,512),device='cuda'):
+def generate_edge_mask(img_path,target_size=(512,512),device=device):
     image = cv2.imread(img_path)
     gray = cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray,(5,5),0)
@@ -400,7 +400,7 @@ def cv2_to_tensor(img):
     img = to_tensor(img).unsqueeze(0).to(device,torch.float)
     return img
 
-def pyramid_neural_transfer(model,content_image_path,style_image_path,device=device):
+def pyramid_neural_transfer(model,content_image_path,style_image_path,style_weight=1e7,device=device):
     content_512 = read_and_resize(content_image_path, 512)
     style_512   = read_and_resize(style_image_path, 512)
 
@@ -424,7 +424,7 @@ def pyramid_neural_transfer(model,content_image_path,style_image_path,device=dev
 
     input_128 = contents[128].clone().requires_grad_(True)
     output_128 = run_neural_sytle_transfer_gatys(
-        model,contents[128],styles[128],input_128
+        model,contents[128],styles[128],input_128,style_weight=style_weight
     )
 
     input_256 = F.interpolate(
@@ -432,7 +432,7 @@ def pyramid_neural_transfer(model,content_image_path,style_image_path,device=dev
     ).clone()
     input_256 = input_256.detach().clone().requires_grad_(True)
     output_256 = run_neural_sytle_transfer_gatys(
-        model,contents[256],styles[256],input_256
+        model,contents[256],styles[256],input_256,style_weight=style_weight
     )
 
     input_512 = F.interpolate(
@@ -440,7 +440,7 @@ def pyramid_neural_transfer(model,content_image_path,style_image_path,device=dev
     ).clone()
     input_512 = input_512.detach().clone().requires_grad_(True)
     output_512 = run_neural_sytle_transfer_gatys(
-        model,contents[512],styles[512],input_512
+        model,contents[512],styles[512],input_512,style_weight=style_weight
     )
 
     return output_512
@@ -480,7 +480,7 @@ if __name__ == "__main__":
     style_image_path = "./images/starry_night.jpg"
     content_image_path = "./images/hoovertowernight.jpg"
     cnn = vgg19(weights=VGG19_Weights.DEFAULT).features.eval()
-    output = pyramid_neural_transfer(cnn,content_image_path,style_image_path)
+    output = pyramid_neural_transfer(cnn,content_image_path,style_image_path,1e6)
     plt.figure()
     img_show(output, width,height,title='Output Image')
 
