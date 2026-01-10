@@ -5,4 +5,5 @@ __pycache__
 .gradio
 test_content*
 test_style*
-output*
+test1.py
+models/

@@ -27,3 +27,20 @@ and add the style of the style picture.
 - more feature statistics such as correlation alignment or histogram matching
 
 
+### how to use it
+```bash
+python test.py --content test_content.jpg --style1 test_style.jpg
+python ui.py 
+```
+```
+This is a simple example, and the output image will be saved as output.jpg.
+ui.py is a simple ui to help you do the content-style-tradeoff,spatial and color control.
+```
+> --content: path to content image
+>
+> --style1: path to style image
+>
+> --output: path to save the output image
+>
+> --style2: path to second style image for style interpolation, but here we only use 
+> default segmentation to do the spatial control, if you want to use your own segmentation masks, please run python ui.py and paint them by yourself.

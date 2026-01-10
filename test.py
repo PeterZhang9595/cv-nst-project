@@ -18,10 +18,10 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f'Using device: {device}')
 
 
-content_path = "test_content1.jpg"   # 你的内容图
+content_path = "test_content.jpg"   # 你的内容图
 style_path1   = "test_style3.jpg"     # 你的风格图
-style_path2  = "test_style2.jpg"     # 你的第二个风格图
-output_path  = "output1.jpg"         # 保存结果
+style_path2  = "test_style.jpg"     # 你的第二个风格图
+output_path  = "output.jpg"         # 保存结果
 
 decoder_path = "./path/decoder.pth"  # 训练好的 decoder 权重
 
