@@ -14,7 +14,7 @@ sys.path.append(real_time_path)
 import gradio as gr
 from Adaptive_Style_Transfer.ui import style_transfer_with_user_mask
 from gatys_and_lapstyle.gatys import run_neural_sytle_transfer_gatys,run_neural_sytle_transfer_lapstyle,pyramid_neural_transfer
-from real_time_style_transfer.test import stylize # 处理图像在函数内部
+from real_time_style_transfer.test import stylize_ui # 处理图像在函数内部
 
 from torchvision.models import vgg19, VGG19_Weights
 import torch
@@ -85,7 +85,19 @@ with gr.Blocks() as demo:
         #         inputs=[content_input,style_input,input_image,mask],
         #         outputs=output_image_lapstyle
         #     )
-        # with gr.Tab("Use Real-Time Style Transfer Model"):
-        #     gr.Markdown("hello real-time style transfer")
+        with gr.Tab("Use Real-Time Style Transfer Model"):
+            gr.Markdown("Use real-time style transfer")
+            with gr.Row():
+                with gr.Column():
+                    content_input = gr.Image(type="pil",label="Content Image for Real-Time Style Transfer")
+                    model_name_input = gr.Textbox(label="Model Name (without .pth and save/ prefix)",value="real_time5e7")
+                with gr.Column():
+                    run_button_realtime = gr.Button("Run Real-Time Style Transfer")
+                    output_image_realtime = gr.Image(type='pil',label="output Image for Real-Time Style Transfer")
+            run_button_realtime.click(
+                fn=stylize_ui,
+                inputs=[content_input,model_name_input],
+                outputs=output_image_realtime
+            )
 if __name__ == "__main__":
     demo.launch()
