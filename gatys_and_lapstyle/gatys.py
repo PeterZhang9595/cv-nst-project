@@ -15,29 +15,14 @@ import numpy as np
 import torchvision
 import cv2
 
-############# 选择设备 ###############
-device = torch.device("cuda" if torch.cuda.is_available()else "cpu")
-torch.set_default_device(device)
-
-############# 加载图片 #################
-
-# 这里我们使用GPU的时候，默认让图像大小为512，若否则使用128以节省计算量
-content_imsize = (512,512) if torch.cuda.is_available() else (256,256)
-style_imsize = (512,512) if torch.cuda.is_available() else (256,256)
-rgb_mean = torch.tensor([0.485,0.456,0.406])
-rgb_std = torch.tensor([0.229,0.224,0.225])
-content_loader = transforms.Compose([
+# 图像预处理
+def preprocess_content(image_name,device):
+    # 读取文件路径
+    content_imsize = (512,512) if torch.cuda.is_available() else (256,256)
+    content_loader = transforms.Compose([
         transforms.Resize(content_imsize,interpolation=InterpolationMode.LANCZOS),
         transforms.ToTensor()
 ])
-style_loader = transforms.Compose([
-    transforms.Resize(style_imsize,interpolation=InterpolationMode.LANCZOS),
-    transforms.ToTensor()
-])
-
-# 图像预处理
-def preprocess_content(image_name):
-    # 读取文件路径
     image = Image.open(image_name)
 
     # 在最前面添加一个维度，变成pytorch标准的[B,C,H,W]形式
@@ -45,7 +30,12 @@ def preprocess_content(image_name):
     image = image.to(device,torch.float)
 
     return image
-def preprocess_style(image_name):
+def preprocess_style(image_name,device):
+    style_imsize = (512,512) if torch.cuda.is_available() else (256,256)
+    style_loader = transforms.Compose([
+    transforms.Resize(style_imsize,interpolation=InterpolationMode.LANCZOS),
+    transforms.ToTensor()
+])
     image = Image.open(image_name)
     image = style_loader(image).unsqueeze(0)
     image = image.to(device,torch.float)
@@ -67,12 +57,13 @@ def img_show(img_tensor,width,height,title=None):
     plt.show(block=True)
 
 class Normalization(nn.Module):
-    def __init__(self):
-        super(Normalization,self).__init__()
-        self.mean = torch.tensor(rgb_mean).view(-1,1,1)
-        
-        self.std = torch.tensor(rgb_std).view(-1,1,1)
-    def forward(self,image):
+    def __init__(self, mean, std):
+        super().__init__()
+        # 用 register_buffer 让 mean / std 自动随 model.to(device)
+        self.register_buffer("mean", mean.clone().detach().view(1,-1,1,1))
+        self.register_buffer("std",  std.clone().detach().view(1,-1,1,1))
+
+    def forward(self, image):
         return (image - self.mean) / self.std
         
 # 计算内容损失
@@ -125,15 +116,16 @@ class StyleLoss(nn.Module):
         return input
 
 # 导入模型，在VGG19的特征提取层加入我们前面定义的两个loss
-def get_model_with_losses(cnn,style_image,content_image,mask=None):
+def get_model_with_losses(cnn,style_image,content_image,device,mask=None):
     # 我们所有提取的层都是relu
     content_layers = ["relu_4_2"]
     style_layers = ["relu_1_1","relu_2_1","relu_3_1","relu_4_1","relu_5_1"]
     content_losses = []
     style_losses = []
-
+    rgb_mean = torch.tensor([0.485,0.456,0.406], device=device)
+    rgb_std  = torch.tensor([0.229,0.224,0.225], device=device)
     # 创建一个空容器
-    normalization = Normalization()
+    normalization = Normalization(rgb_mean,rgb_std)
     model = nn.Sequential(normalization)
 
     i = 1
@@ -180,13 +172,13 @@ def get_model_with_losses(cnn,style_image,content_image,mask=None):
 
 
 class LaplacianLayer(nn.Module):
-    def __init__(self,channels=3):
+    def __init__(self,device,channels=3):
         super(LaplacianLayer,self).__init__()
         kernel = torch.tensor([
             0,-1,0,
             -1,4,-1,
             0,-1,0
-        ],dtype=torch.float32)
+        ],dtype=torch.float32,device=device)
 
         kernel = kernel.view(1,1,3,3) 
         # 在原论文中，作者指出，应当对RGB三个通道分别用laplacian卷积
@@ -202,7 +194,7 @@ class LaplacianLayer(nn.Module):
             bias=False,
             padding=1,
             padding_mode='reflect'
-        )
+        ).to(device)
 
         with torch.no_grad():
             self.conv.weight.copy_(kernel)
@@ -213,7 +205,7 @@ class LaplacianLayer(nn.Module):
         return self.conv(input)
 
 class LaplacianLoss(nn.Module):
-    def __init__(self,target,channels=3):
+    def __init__(self,target,device,channels=3):
         super(LaplacianLoss,self).__init__()
         self.channels = channels
         
@@ -228,21 +220,23 @@ class LaplacianLoss(nn.Module):
         return input
 
 
-def get_model_with_lapstyle_losses(content_image):
+def get_model_with_lapstyle_losses(content_image,device):
     lap_losses = []
-    normalization = Normalization()
+    rgb_mean = torch.tensor([0.485,0.456,0.406], device=device)
+    rgb_std  = torch.tensor([0.229,0.224,0.225], device=device)
+    normalization = Normalization(rgb_mean,rgb_std)
     model = nn.Sequential(normalization)
     
     layer = nn.AvgPool2d(kernel_size=4,stride=4)
     name = "average_pooling"
     model.add_module(name,layer)
 
-    laplacian = LaplacianLayer()
+    laplacian = LaplacianLayer(device)
     name = "laplacian operator"
     model.add_module(name,laplacian)
 
     target = model(content_image)
-    lap_loss = LaplacianLoss(target)
+    lap_loss = LaplacianLoss(target,device)
     name = "laplacian loss"
     model.add_module(name,lap_loss)
 
@@ -252,7 +246,7 @@ def get_model_with_lapstyle_losses(content_image):
 
 
 # 生成一张图片的掩码，使用canny边缘检测方法
-def generate_edge_mask(img_path,target_size=(512,512),device=device):
+def generate_edge_mask(img_path,device,target_size=(512,512)):
     image = cv2.imread(img_path)
     gray = cv2.cvtColor(image,cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray,(5,5),0)
@@ -283,13 +277,13 @@ def get_input_optimizer(input_image):
     optimizer = optim.LBFGS([input_image],lr = 0.1)
     return optimizer
 
-def run_neural_sytle_transfer_lapstyle(cnn,content_image,style_image,input_image,mask=None,num_steps=300,style_weight=1e7,content_weight=1,laplacian_weight=1e3,device=device):
+def run_nst_lapstyle(cnn,content_image,style_image,input_image,device,mask=None,num_steps=300,style_weight=1e7,content_weight=1,laplacian_weight=1e3):
     print('Building the style transfer model...')
     if mask is not None:
-        gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image,mask)
+        gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image,device,mask)
     else:
-        gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image)
-    laplacian_model,laplacian_losses = get_model_with_lapstyle_losses(content_image)
+        gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image,device)
+    laplacian_model,laplacian_losses = get_model_with_lapstyle_losses(content_image,device)
     input_image.requires_grad_(True)
     gaty_model.eval()
     gaty_model.requires_grad_(False)
@@ -336,12 +330,12 @@ def run_neural_sytle_transfer_lapstyle(cnn,content_image,style_image,input_image
 
     return input_image
 
-def run_neural_sytle_transfer_gatys(cnn,content_image,style_image,input_image,mask=None,num_steps=300,style_weight=1e7,content_weight=1,laplacian_weight=1e3,device=device):
+def run_nst_gatys(cnn,content_image,style_image,input_image,device,mask=None,num_steps=300,style_weight=1e7,content_weight=1,laplacian_weight=1e3):
     print('Building the style transfer model...')
     if mask is not None:
-        gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image,mask)
+        gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image,device,mask)
     else:
-        gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image)
+        gaty_model,content_losses,style_losses = get_model_with_losses(cnn,style_image,content_image,device)
     #laplacian_model,laplacian_losses = get_model_with_lapstyle_losses(content_image)
     input_image.requires_grad_(True)
     gaty_model.eval()
@@ -400,7 +394,7 @@ def cv2_to_tensor(img):
     img = to_tensor(img).unsqueeze(0).to(device,torch.float)
     return img
 
-def pyramid_neural_transfer(model,content_image_path,style_image_path,style_weight=1e7,device=device):
+def pyramid_neural_transfer(model,content_image_path,style_image_path,device,style_weight=1e7):
     content_512 = read_and_resize(content_image_path, 512)
     style_512   = read_and_resize(style_image_path, 512)
 
@@ -423,53 +417,131 @@ def pyramid_neural_transfer(model,content_image_path,style_image_path,style_weig
     }
 
     input_128 = contents[128].clone().requires_grad_(True)
-    output_128 = run_neural_sytle_transfer_gatys(
-        model,contents[128],styles[128],input_128,style_weight=style_weight
+    output_128 = run_nst_gatys(
+        model,contents[128],styles[128],input_128,device,style_weight=style_weight
     )
 
     input_256 = F.interpolate(
         output_128,size=(256,256),mode="bilinear",align_corners=False
     ).clone()
     input_256 = input_256.detach().clone().requires_grad_(True)
-    output_256 = run_neural_sytle_transfer_gatys(
-        model,contents[256],styles[256],input_256,style_weight=style_weight
+    output_256 = run_nst_gatys(
+        model,contents[256],styles[256],input_256,device,style_weight=style_weight
     )
 
     input_512 = F.interpolate(
         output_256,size=(512,512),mode="bilinear",align_corners=False
     ).clone()
     input_512 = input_512.detach().clone().requires_grad_(True)
-    output_512 = run_neural_sytle_transfer_gatys(
-        model,contents[512],styles[512],input_512,style_weight=style_weight
+    output_512 = run_nst_gatys(
+        model,contents[512],styles[512],input_512,device,style_weight=style_weight
     )
 
     return output_512
+def build_mask_from_pil(pil_img, out_size=(512, 512)):
+    """
+    pil_img: PIL.Image, RGB / L / RGBA 都可以
+    return: torch.Tensor [1,1,H,W]
+    """
+    img_np = np.array(pil_img)
 
+    if img_np.ndim == 3:
+        if img_np.shape[2] == 3:
+            gray = cv2.cvtColor(img_np, cv2.COLOR_RGB2GRAY)
+        elif img_np.shape[2] == 4:
+            gray = cv2.cvtColor(img_np, cv2.COLOR_RGBA2GRAY)
+        else:
+            raise ValueError("Unsupported channel number")
+    else:
+        gray = img_np  
 
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 15, 30)
+
+    kernel = np.ones((5, 5), np.uint8)
+    closed = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+
+    contours, _ = cv2.findContours(
+        closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+    )
+    mask_np = np.zeros_like(gray)
+    cv2.drawContours(mask_np, contours, -1, 255, thickness=cv2.FILLED)
+
+    mask = torch.from_numpy(mask_np).float() / 255.0
+    mask = mask.unsqueeze(0).unsqueeze(0)  # [1,1,H,W]
+
+    mask = F.interpolate(mask, size=out_size, mode="nearest")
+
+    return mask
+# 传入的都是image格式
+def run_neural_style_transfer_ui(content_image,style_image,device,use_laplacian=False,use_mask=False,style_weight=1e7):
+    #device = torch.device("cuda" if torch.cuda.is_available()else "cpu")
+    content_imsize = (512,512) if torch.cuda.is_available() else (256,256)
+    style_imsize = (512,512) if torch.cuda.is_available() else (256,256)
+    content_loader = transforms.Compose([
+        transforms.Resize(content_imsize,interpolation=InterpolationMode.LANCZOS),
+        transforms.ToTensor()
+    ])
+    style_loader = transforms.Compose([
+        transforms.Resize(style_imsize,interpolation=InterpolationMode.LANCZOS),
+        transforms.ToTensor()
+    ])
+
+    width, height = content_image.size
+
+    mask = build_mask_from_pil(content_image).to(device)
+
+    content_image = content_loader(content_image).unsqueeze(0)
+    content_image = content_image.to(device,torch.float)
+    style_image = style_loader(style_image).unsqueeze(0)
+    style_image = style_image.to(device,torch.float)
+    input_image = content_image.clone()
+
+    cnn = vgg19(weights=VGG19_Weights.DEFAULT).features.eval().to(device)
+
+    if use_mask and use_laplacian:
+        output = run_nst_lapstyle(cnn,content_image,style_image,input_image,device,mask,style_weight=style_weight)
+    elif use_mask and not use_laplacian:
+        output = run_nst_gatys(cnn,content_image,style_image,input_image,device,mask,style_weight=style_weight)
+    elif not use_mask and use_laplacian:
+        output = run_nst_lapstyle(cnn,content_image,style_image,input_image,device,style_weight=style_weight)
+    elif not use_mask and not use_laplacian:
+        output = run_nst_gatys(cnn,content_image,style_image,input_image,device,style_weight=style_weight)
+
+    image = output.cpu().clone()
+    image = image.squeeze(0)
+    image = torch.clamp(image,0,1)
+    # 把向量转化回PIL图像
+    unloader = transforms.ToPILImage()
+    #plt.ion()
+    image = unloader(image)
+    image = image.resize((width,height),resample=Image.Resampling.LANCZOS)
+    return image
 
 if __name__ == "__main__":
+    device = torch.device("cuda" if torch.cuda.is_available()else "cpu")
     temp = Image.open("./images/palace.jpg")
     width, height = temp.size  
     style_image_path = "./images/starry_night.jpg"
     content_image_path = "./images/palace.jpg"
-    style_image = preprocess_style(style_image_path)
-    content_image = preprocess_content(content_image_path)
-    cnn = vgg19(weights=VGG19_Weights.DEFAULT).features.eval()
+    style_image = preprocess_style(style_image_path,device)
+    content_image = preprocess_content(content_image_path,device)
+    cnn = vgg19(weights=VGG19_Weights.DEFAULT).features.eval().to(device)
 
     # 定义一系列参数
     use_mask = True
     use_laplacian = True
 
     input_image = content_image.clone()
-    mask = generate_edge_mask(content_image_path)
+    mask = generate_edge_mask(content_image_path,device)
     if use_mask and use_laplacian:
-        output = run_neural_sytle_transfer_lapstyle(cnn,content_image,style_image,input_image,mask)
+        output = run_nst_lapstyle(cnn,content_image,style_image,input_image,device,mask)
     elif use_mask and not use_laplacian:
-        output = run_neural_sytle_transfer_gatys(cnn,content_image,style_image,input_image,mask)
+        output = run_nst_gatys(cnn,content_image,style_image,input_image,device,mask)
     elif not use_mask and use_laplacian:
-        output = run_neural_sytle_transfer_lapstyle(cnn,content_image,style_image,input_image)
+        output = run_nst_lapstyle(cnn,content_image,style_image,input_image,device)
     elif not use_mask and not use_laplacian:
-        output = run_neural_sytle_transfer_gatys(cnn,content_image,style_image,input_image)
+        output = run_nst_gatys(cnn,content_image,style_image,input_image,device)
 
     plt.figure()
     img_show(output, width,height,title='Output Image')
