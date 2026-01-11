@@ -11,11 +11,11 @@ from function import segment_foreground_background,color_matching,color_matching
 # Load the pre-trained models
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 decoder_path = "./path/decoder.pth"  # 训练好的 decoder 权重
-decoder_path1 = "./path/decoder_iter_10000.pth"
+decoder_path1 = "./Adaptive_Style_Transfer/path/decoder.pth"
 vgg = vgg19(weights=VGG19_Weights.IMAGENET1K_V1).features
 encoder = VGGEncoder(vgg).to(device).eval()
 decoder = Decoder().to(device)
-decoder.load_state_dict(torch.load(decoder_path, map_location=device))
+decoder.load_state_dict(torch.load(decoder_path1, map_location=device))
 net = StyleTransferNet(encoder, decoder).to(device).eval()
 mean = [0.485, 0.456, 0.406]
 std  = [0.229, 0.224, 0.225]
