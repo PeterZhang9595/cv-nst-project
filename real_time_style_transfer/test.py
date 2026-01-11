@@ -28,6 +28,7 @@ def stylize(content_image_path, model_path, output_image_path):
     from torchvision.transforms import ToPILImage
     img = ToPILImage()(output)
     img.save(f'output/{output_image_path}.png')
+    return img
 
 if __name__=="__main__":
     parse=argparse.ArgumentParser()
