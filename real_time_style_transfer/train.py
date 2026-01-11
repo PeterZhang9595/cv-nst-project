@@ -22,8 +22,10 @@ transform = transforms.Compose([
     ])
 
 
-def train(dataset_path,style_path,save_model_path,epochs=2,lr=1e-4,content_weight=1e2,style_weight=1e8,tw_weight=1e-3):
-    style_img=transform(Image.open(style_path)).unsqueeze(0).to(device)
+def train(style_img,save_model_name,dataset_path="contentset/coco",epochs=2,lr=1e-4,content_weight=1e2,style_weight=1e8,tw_weight=1e-3):
+    dataset_path='contentset/coco'
+    save_model_path=f'save/{save_model_name}.pth'
+    style_img=transform(style_img).unsqueeze(0).to(device)
     train_dataset = datasets.ImageFolder(dataset_path, transform)
     train_loader = DataLoader(train_dataset, batch_size=4)
     vgg=VGGFeatures().to(device)
@@ -59,11 +61,11 @@ def train(dataset_path,style_path,save_model_path,epochs=2,lr=1e-4,content_weigh
     torch.save(transformer.state_dict(), save_model_path)
 if __name__=="__main__":
     parse=argparse.ArgumentParser()
-    parse.add_argument('--content_path',type=str,required=True,help='path to train')
-    parse.add_argument('--style_path',type=str,required=True,help='style img path')
-    parse.add_argument('--checkpoint_name',type=str,default='path',help='checkpoint_save_dir')
+    parse.add_argument('--content_path',type=str,default="contentset/coco",help='path to train')
+    parse.add_argument('--style_img',type=str,required=True,help='style img PIL')
+    parse.add_argument('--checkpoint_name',type=str,default='path',help='checkpoint_name')
     args=parse.parse_args()
 
-    train(args.content_path,f'{args.style_path}',f'save/{args.checkpoint_name}.pth')
+    train(args.style_img,args.checkpoint_name,args.content_path,)
     
     
