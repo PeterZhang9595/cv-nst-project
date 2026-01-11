@@ -13,7 +13,7 @@ sys.path.append(real_time_path)
 
 import gradio as gr
 from Adaptive_Style_Transfer.ui import style_transfer_with_user_mask
-from gatys_and_lapstyle.gatys import run_neural_sytle_transfer_gatys,run_neural_sytle_transfer_lapstyle,pyramid_neural_transfer
+from gatys_and_lapstyle.gatys import run_neural_style_transfer_ui
 from real_time_style_transfer.test import stylize_ui # 处理图像在函数内部
 
 from torchvision.models import vgg19, VGG19_Weights
@@ -53,38 +53,23 @@ with gr.Blocks() as demo:
                 inputs=[content_input, style1_input, style2_input, k_slider, use_color_matching, alpha_slider],
                 outputs=output_image
             )
-        # with gr.Tab("Use Gatys' Style Transfer Model"):
-        #     gr.Markdown("hello gatys")
-        #     with gr.Row():
-        #         with gr.Column():
-        #             content_input = gr.Image(type="pil",label="Content Image for Gatys")
-        #             style_input = gr.Image(type="pil",label="Style Image for Gatys")
-        #             input_image =  gr.Image(type="pil",label="Input Image for Gatys (Can be same as Content Image)")
-        #             mask = gr.ImageEditor(type="pil",label="Mask Image for Gatys (White for Foreground, Black for Background)")
-        #         with gr.Column():
-        #             run_button_gatys = gr.Button("Run Gatys' Style Transfer")
-        #             output_image_gatys = gr.Image(type='pil',label="output Image for Gatys")
-        #     run_button_gatys.click(
-        #         fn=run_neural_sytle_transfer_gatys,
-        #         inputs=[content_input,style_input,input_image,mask],
-        #         outputs=output_image_gatys
-        #     )
-        # with gr.Tab("Use LapStyle Model"):
-        #     gr.Markdown("hello lapstyle")
-        #     with gr.Row():
-        #         with gr.Column():
-        #             content_input = gr.Image(type="pil",label="Content Image for LapStyle")
-        #             style_input = gr.Image(type="pil",label="Style Image for LapStyle")
-        #             input_image = gr.Image(type="pil",label="Input Image for LapStyle (Can be same as Content Image)")
-        #             mask = gr.ImageEditor(type="pil",label="Mask Image for LapStyle (White for Foreground, Black for Background)")
-        #         with gr.Column():
-        #             run_button_lapstyle = gr.Button("Run LapStyle Transfer")
-        #             output_image_lapstyle = gr.Image(type='pil',label="output Image for LapStyle")
-        #     run_button_lapstyle.click(
-        #         fn=run_neural_sytle_transfer_lapstyle,
-        #         inputs=[content_input,style_input,input_image,mask],
-        #         outputs=output_image_lapstyle
-        #     )
+        with gr.Tab("Use Gatys_and_Lapstyle Model"):
+            gr.Markdown("Upload a content image and a style image to perform neural style transfer using Gatys' method.")
+            with gr.Row():
+                with gr.Column():
+                    content_input = gr.Image(type="pil", label="Content Image for Gatys")
+                    style_input = gr.Image(type="pil", label="Style Image for Gatys")   
+                    use_laplacian = gr.Checkbox(label="Use Laplacian Pyramid", value=False)
+                    use_mask = gr.Checkbox(label="Use Mask", value=False)
+                    style_weight = gr.Slider(1e6, 1e9, value=1e7, step=1e6, label="Style Weight")
+                with gr.Column():
+                    run_button_gatys = gr.Button("Run Gatys Style Transfer")
+                    output_image_gatys = gr.Image(type="pil", label="Output Image for Gatys")
+            run_button_gatys.click(
+                fn=run_neural_style_transfer_ui,
+                inputs=[content_input, style_input, use_laplacian, use_mask, style_weight],
+                outputs=output_image_gatys
+            )
         with gr.Tab("Use Real-Time Style Transfer Model"):
             gr.Markdown("Use real-time style transfer")
             with gr.Row():

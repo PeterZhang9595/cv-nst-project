@@ -474,8 +474,8 @@ def build_mask_from_pil(pil_img, out_size=(512, 512)):
 
     return mask
 # 传入的都是image格式
-def run_neural_style_transfer_ui(content_image,style_image,device,use_laplacian=False,use_mask=False,style_weight=1e7):
-    #device = torch.device("cuda" if torch.cuda.is_available()else "cpu")
+def run_neural_style_transfer_ui(content_image,style_image,use_laplacian=False,use_mask=False,style_weight=1e7):
+    device = torch.device("cuda" if torch.cuda.is_available()else "cpu")
     content_imsize = (512,512) if torch.cuda.is_available() else (256,256)
     style_imsize = (512,512) if torch.cuda.is_available() else (256,256)
     content_loader = transforms.Compose([
