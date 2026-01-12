@@ -389,7 +389,7 @@ def read_and_resize(path, size=512):
     return img
 
 to_tensor = transforms.ToTensor()
-def cv2_to_tensor(img):
+def cv2_to_tensor(img,device):
     img = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
     img = to_tensor(img).unsqueeze(0).to(device,torch.float)
     return img
@@ -405,15 +405,15 @@ def pyramid_neural_transfer(model,content_image_path,style_image_path,device,sty
     style_128 = cv2.pyrDown(style_256)
 
     contents = {
-        128: cv2_to_tensor(content_128),
-        256: cv2_to_tensor(content_256),
-        512: cv2_to_tensor(content_512),
+        128: cv2_to_tensor(content_128,device),
+        256: cv2_to_tensor(content_256,device),
+        512: cv2_to_tensor(content_512,device),
     }
 
     styles = {
-        128: cv2_to_tensor(style_128),
-        256: cv2_to_tensor(style_256),
-        512: cv2_to_tensor(style_512),
+        128: cv2_to_tensor(style_128,device),
+        256: cv2_to_tensor(style_256,device),
+        512: cv2_to_tensor(style_512,device),
     }
 
     input_128 = contents[128].clone().requires_grad_(True)
@@ -438,6 +438,75 @@ def pyramid_neural_transfer(model,content_image_path,style_image_path,device,sty
     )
 
     return output_512
+
+def pil_to_cv2(pil_img):
+    """
+    PIL.Image → OpenCV BGR np.ndarray
+    """
+    img = np.array(pil_img)  # RGB
+    if img.ndim == 3 and img.shape[2] == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    return img
+
+def read_and_resize_pil(pil_img, size=512):
+    img = pil_to_cv2(pil_img)
+    img = cv2.resize(img, (size, size), interpolation=cv2.INTER_LANCZOS4)
+    return img
+
+def pyramid_nst_ui(content_image,style_image,device,style_weight=1e7):
+    width,height = content_image.size
+    content_512 = read_and_resize_pil(content_image, 512)
+    style_512   = read_and_resize_pil(style_image, 512)
+    model = vgg19(weights=VGG19_Weights.DEFAULT).features.eval().to(device)
+    content_256 = cv2.pyrDown(content_512)
+    style_256 = cv2.pyrDown(style_512)
+
+    content_128 = cv2.pyrDown(content_256)
+    style_128 = cv2.pyrDown(style_256)
+
+    contents = {
+        128: cv2_to_tensor(content_128,device),
+        256: cv2_to_tensor(content_256,device),
+        512: cv2_to_tensor(content_512,device),
+    }
+
+    styles = {
+        128: cv2_to_tensor(style_128,device),
+        256: cv2_to_tensor(style_256,device),
+        512: cv2_to_tensor(style_512,device),
+    }
+
+    input_128 = contents[128].clone().requires_grad_(True)
+    output_128 = run_nst_gatys(
+        model,contents[128],styles[128],input_128,device,style_weight=style_weight
+    )
+
+    input_256 = F.interpolate(
+        output_128,size=(256,256),mode="bilinear",align_corners=False
+    ).clone()
+    input_256 = input_256.detach().clone().requires_grad_(True)
+    output_256 = run_nst_gatys(
+        model,contents[256],styles[256],input_256,device,style_weight=style_weight
+    )
+
+    input_512 = F.interpolate(
+        output_256,size=(512,512),mode="bilinear",align_corners=False
+    ).clone()
+    input_512 = input_512.detach().clone().requires_grad_(True)
+    output_512 = run_nst_gatys(
+        model,contents[512],styles[512],input_512,device,style_weight=style_weight
+    )
+
+    image = output_512.cpu().clone()
+    image = image.squeeze(0)
+    image = torch.clamp(image,0,1)
+    # 把向量转化回PIL图像
+    unloader = transforms.ToPILImage()
+    #plt.ion()
+    image = unloader(image)
+    image = image.resize((width,height),resample=Image.Resampling.LANCZOS)
+    return image
+    
 def build_mask_from_pil(pil_img, out_size=(512, 512)):
     """
     pil_img: PIL.Image, RGB / L / RGBA 都可以
@@ -473,6 +542,7 @@ def build_mask_from_pil(pil_img, out_size=(512, 512)):
     mask = F.interpolate(mask, size=out_size, mode="nearest")
 
     return mask
+
 # 传入的都是image格式
 def run_neural_style_transfer_ui(content_image,style_image,use_laplacian=False,use_mask=False,style_weight=1e7):
     device = torch.device("cuda" if torch.cuda.is_available()else "cpu")
@@ -520,6 +590,7 @@ def run_neural_style_transfer_ui(content_image,style_image,use_laplacian=False,u
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available()else "cpu")
+    """
     temp = Image.open("./images/palace.jpg")
     width, height = temp.size  
     style_image_path = "./images/starry_night.jpg"
@@ -545,15 +616,15 @@ if __name__ == "__main__":
 
     plt.figure()
     img_show(output, width,height,title='Output Image')
-
     """
+
     temp = Image.open("./images/hoovertowernight.jpg")
     width, height = temp.size  
     style_image_path = "./images/starry_night.jpg"
     content_image_path = "./images/hoovertowernight.jpg"
-    cnn = vgg19(weights=VGG19_Weights.DEFAULT).features.eval()
-    output = pyramid_neural_transfer(cnn,content_image_path,style_image_path,1e6)
+    cnn = vgg19(weights=VGG19_Weights.DEFAULT).features.eval().to(device)
+    output = pyramid_neural_transfer(cnn,content_image_path,style_image_path,device,1e6)
     plt.figure()
     img_show(output, width,height,title='Output Image')
-    """
+    
    
