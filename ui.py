@@ -13,7 +13,7 @@ sys.path.append(real_time_path)
 
 import gradio as gr
 from Adaptive_Style_Transfer.ui import style_transfer_with_user_mask
-from gatys_and_lapstyle.gatys import run_neural_style_transfer_ui
+from gatys_and_lapstyle.gatys import run_neural_style_transfer_ui,pyramid_nst_ui
 from real_time_style_transfer.test import stylize_ui # 处理图像在函数内部
 
 from torchvision.models import vgg19, VGG19_Weights
@@ -29,7 +29,7 @@ with gr.Blocks() as demo:
 
     with gr.Tabs():
         with gr.Tab("Use Adaptive Style Transfer Model"):
-            gr.Markdown("Upload a content image, two style images, and draw a mask to specify foreground and background for style transfer.")
+            gr.Markdown("# Upload a content image, two style images, and draw a mask to specify foreground and background for style transfer.")
             with gr.Row():
                 with gr.Column():
                     # in the left column, we place three image
@@ -54,24 +54,32 @@ with gr.Blocks() as demo:
                 outputs=output_image
             )
         with gr.Tab("Use Gatys_and_Lapstyle Model"):
-            gr.Markdown("Upload a content image and a style image to perform neural style transfer using Gatys' method.")
+            gr.Markdown("# Upload a content image and a style image to perform neural style transfer using Gatys' method.")
+            gr.Markdown("# use_laplacian and use_mask are only for the first button.")
             with gr.Row():
                 with gr.Column():
                     content_input = gr.Image(type="pil", label="Content Image for Gatys")
                     style_input = gr.Image(type="pil", label="Style Image for Gatys")   
+
+                with gr.Column():
+                    run_button_gatys = gr.Button("Run Gatys Style Transfer")
+                    run_button_pyramid = gr.Button("Run Pyramid NST")
                     use_laplacian = gr.Checkbox(label="Use Laplacian Pyramid", value=False)
                     use_mask = gr.Checkbox(label="Use Mask", value=False)
                     style_weight = gr.Slider(1e6, 1e9, value=1e7, step=1e6, label="Style Weight")
-                with gr.Column():
-                    run_button_gatys = gr.Button("Run Gatys Style Transfer")
                     output_image_gatys = gr.Image(type="pil", label="Output Image for Gatys")
             run_button_gatys.click(
                 fn=run_neural_style_transfer_ui,
                 inputs=[content_input, style_input, use_laplacian, use_mask, style_weight],
                 outputs=output_image_gatys
             )
+            run_button_pyramid.click(
+                fn=pyramid_nst_ui,
+                inputs=[content_input, style_input, style_weight],
+                outputs=output_image_gatys
+            )
         with gr.Tab("Use Real-Time Style Transfer Model"):
-            gr.Markdown("Use real-time style transfer")
+            gr.Markdown("# Upload a content image and specify a pre-trained model name to perform real-time style transfer.")
             with gr.Row():
                 with gr.Column():
                     content_input = gr.Image(type="pil",label="Content Image for Real-Time Style Transfer")

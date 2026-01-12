@@ -453,7 +453,8 @@ def read_and_resize_pil(pil_img, size=512):
     img = cv2.resize(img, (size, size), interpolation=cv2.INTER_LANCZOS4)
     return img
 
-def pyramid_nst_ui(content_image,style_image,device,style_weight=1e7):
+def pyramid_nst_ui(content_image,style_image,style_weight=1e7):
+    device = torch.device("cuda" if torch.cuda.is_available()else "cpu")
     width,height = content_image.size
     content_512 = read_and_resize_pil(content_image, 512)
     style_512   = read_and_resize_pil(style_image, 512)
