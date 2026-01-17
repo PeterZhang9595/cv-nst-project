@@ -1,5 +1,5 @@
 # 简介
-我们的大作业题目是神经风格迁移，github仓库链接为
+我们的大作业题目是神经风格迁移，github仓库链接为https://github.com/PeterZhang9595/cv-nst-project。
 # 环境配置
 首先从Github下载代码到本地。
 1. 配置虚拟环境
